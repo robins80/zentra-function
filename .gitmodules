@@ -1,3 +1,0 @@
-[submodule "multiweatherapi"]
-	path = multiweatherapi
-	url = git@gitlab.msu.edu:adsdatascience/multiweatherapi.git
