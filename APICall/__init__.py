@@ -1,8 +1,7 @@
 import azure.functions as func
 import json
 import logging
-import multiweatherapi.multiweatherapi.zentra as zentra
-import multiweatherapi.multiweatherapi as multiweatherapi
+from multiweatherapi.multiweatherapi import multiweatherapi
 from requests import Session, Request
 import time
 
@@ -25,13 +24,20 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     streamer = logging.StreamHandler()
     streamer.setLevel(logging.DEBUG)
     logger.addHandler(streamer)
-    logger.info('main - Retrieving parms...')
-    logger.info('main - req = ' + str(req.get_body()))
     parms = req.get_json()
+
+    # Change the name of the "api_provider" dictionary key to "vendor" as that's what Junhee's multiweather code is expecting.
+    parms['vendor'] = parms['api_provider']
+    del parms['api_provider']
+
+    # Change the name of the "identifier" dictionary key to "sn" as that's what Junhee's multiweather code is expecting.
+    parms['sn'] = parms['identifier']
+    del parms['identifier']    
+
+    logger.info('main - Calling the ' + parms.get('vendor') + ' API...')
     
     with Timer() as timer: 
-        zentra_parms = zentra.ZentraParam(token = parms.get('token'), sn = parms.get('serial_number'))   
-        readings = zentra.ZentraReadings(zentra_parms)
+        readings = multiweatherapi.get_reading(**parms)
 
-    logger.info('The call to Zentra took %.03f seconds.' % timer.interval)
+    logger.info('The call to ' + parms.get('vendor') + ' took %.03f seconds.' % timer.interval)
     return func.HttpResponse(json.dumps(readings.response))
