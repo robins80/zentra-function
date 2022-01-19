@@ -118,18 +118,18 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     # If the vendor is rainwise, we need to add in mac, username (same as mac), sid, and pid.
     if (parms['vendor'] == 'rainwise'):
         logger.info('Setting rainwise parms...')
-        parms['username'] = parms['user_id']
-        parms['mac'] = parms['user_id']
-        parms['pid'] = parms['apisec']
-        parms['sid'] = parms['apikey']
+        parms['username'] = parms.pop('user_id')
+        parms['mac'] = parms.pop('user_id')
+        parms['pid'] = parms.pop('apisec')
+        parms['sid'] = parms.pop('apikey')
     
     # If the vendor is Campbell, we need to use sn for station_id, password for user_passwd and client_id for station_lid.
     # Call the multiweatherapi library to poll the API.
     if (parms['vendor'] == 'campbell'):
         logger.info('Setting campbell parms...')
-        parms['station_id'] = parms['sn']
-        parms['station_lid'] = parms['client_id']
-        parms['user_passwd'] = parms['password']
+        parms['station_id'] = parms.pop('sn')
+        parms['station_lid'] = parms.pop('client_id')
+        parms['user_passwd'] = parms.pop('password')
 
     success = True
 
