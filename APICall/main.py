@@ -14,6 +14,7 @@ import requests
 
 logger = logging.getLogger('zentra')
 parms = None
+readings = None
 
 class Timer:    
     def __enter__(self):
@@ -72,6 +73,7 @@ def get_range(sn, db, vendor):
     # Use this for local testing as needed.
     # start_date = end_date - datetime.timedelta(hours = 1)
 
+    logger.info('Exiting date_range...')
     return start_date, end_date
 
 def tz_aware(dt):
@@ -103,12 +105,32 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     logger.info('main: Connecting to the database...')
     db = connect_database()
 
+    # Check to see if we have a vendor.  This is to catch if one is not listed in the station_info table.
+    if (parms['vendor'] is None):
+        raise Exception('ERROR: Vendor was not specified.  Check entry for station with id ' + parms['sn'] + ' in the station_info table.')
+
     # Get the date range and add it to the parms.
+    logger.info('Setting date range...')
     start_date, end_date = get_range(parms['sn'], db, parms.get('vendor'))
     parms['start_date'] = start_date
     parms['end_date'] = end_date
+
+    # If the vendor is rainwise, we need to add in mac, username (same as mac), sid, and pid.
+    if (parms['vendor'] == 'rainwise'):
+        logger.info('Setting rainwise parms...')
+        parms['username'] = parms['user_id']
+        parms['mac'] = parms['user_id']
+        parms['pid'] = parms['apisec']
+        parms['sid'] = parms['apikey']
     
+    # If the vendor is Campbell, we need to use sn for station_id, password for user_passwd and client_id for station_lid.
     # Call the multiweatherapi library to poll the API.
+    if (parms['vendor'] == 'campbell'):
+        logger.info('Setting campbell parms...')
+        parms['station_id'] = parms['sn']
+        parms['station_lid'] = parms['client_id']
+        parms['user_passwd'] = parms['password']
+
     success = True
 
     try:
@@ -124,8 +146,16 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         # we don't create a raw_data.json file that has no real info in it, and therefore the part of the ddata factory that stores data will
         # not be called.
     except Exception as error:
+        logger.info('====================================')
+        logger.info('Error is')
+        logger.info(error)
+        logger.info('====================================')
         success = False
-        logger.error('Encountered this error calling the API:\n=====>' + str(error))
+        if error is None:
+            output = "No error message"
+        else:
+            output = str(error)
+        logger.error('Encountered this error calling the API:\n=====>' + output)
     
     # If we didn't encounter an error calling the API, create our "raw data" JSON, which will have the following information:
     # The identifier that the vendor used to uniquely ID a station.
