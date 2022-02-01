@@ -54,11 +54,11 @@ def get_range(sn, db, vendor):
     cursor.close()
 
     # Set the end date of the range for now.
-    end_date = datetime.datetime.now().replace(tzinfo = local)
+    end_date = datetime.datetime.now(datetime.timezone.utc)
     
     # If there is no data in the raw_data table, then set the start_date to be 24 hours ago.  Make sure to make it time zone aware.
     if results:
-        start_date = results[0][0].replace(tzinfo = local)
+        start_date = results[0][0]
     else:
         start_date = end_date - datetime.timedelta(seconds = 86400)
         start_date = start_date.replace(tzinfo = local)
@@ -72,6 +72,8 @@ def get_range(sn, db, vendor):
 
     # Use this for local testing as needed.
     # start_date = end_date - datetime.timedelta(hours = 1)
+
+    # Check to make sure that the start date is not after the end date.  If they are, switch them.
 
     logger.info('Exiting date_range...')
     return start_date, end_date
@@ -114,6 +116,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     start_date, end_date = get_range(parms['sn'], db, parms.get('vendor'))
     parms['start_date'] = start_date
     parms['end_date'] = end_date
+    logger.info('DEBUG: start date = ' + str(parms['start_date']) + ', end date = ' + str(parms['end_date']))
 
     # If the vendor is rainwise, we need to add in mac, username (same as mac), sid, and pid.
     if (parms['vendor'] == 'rainwise'):
@@ -172,6 +175,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         }
 
         logger.info('main: Writing the raw_data table entry to blob storage...')
+        logger.info('DEBUG: main,  readings.resp_raw = ' + str(readings.resp_raw))
 
         try:
             blobservice.create_blob_from_text(container_name = 'zentra', blob_name = 'raw_data.json', text = json.dumps(raw_data), encoding='utf-8')
