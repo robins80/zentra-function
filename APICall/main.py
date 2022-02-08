@@ -41,6 +41,23 @@ def connect_database():    # Connect to the postgres database.
 
     return connection
 
+def check_parms(**parms):
+    # Check to see if we have a vendor.  This is to catch if one is not listed in the station_info table.
+    if (parms['vendor'] is None or len(parms['vendor']) == 0):
+        raise Exception('ERROR: Vendor was not specified.  Check entry for station with id ' + parms['sn'] + ' in the station_info table.')
+
+    # print('start date = ' + str(parms['start_date']) + ', end date = ' + str(parms['end_date']))
+
+    # Check to see if we have an identifier.
+    if (parms['sn'] is None):
+        raise Exception('ERROR: Station identifier is None.  Check the station_info table for null sn entries.')
+
+    if(len(parms['sn']) == 0):
+        raise Exception('ERROR: Station identifier is empty.  Check the station_info table for empty string sn entries.')
+
+    # Check to make sure that the start date is not after the end date.  If they are, switch them.
+    if parms['start_date'] > parms['end_date']:
+        raise Exception('Start date is after the end date.')
 
 def get_range(sn, db, vendor):
     # Get the last time this station was polled.
@@ -64,7 +81,7 @@ def get_range(sn, db, vendor):
         start_date = start_date.replace(tzinfo = local)
     
 
-    # logger.info('start_date: ' + str(start_date) + ', end_date timezone is: ' + str(end_date))
+    logger.info('start_date: ' + str(start_date) + ', end_date: ' + str(end_date))
 
     # If this is a Davis API, we need to make the date range 24 hours as they do not support date ranges larger than that.
     if (vendor == 'davis') and (end_date - start_date > datetime.timedelta(hours = 24)):
@@ -72,8 +89,6 @@ def get_range(sn, db, vendor):
 
     # Use this for local testing as needed.
     # start_date = end_date - datetime.timedelta(hours = 1)
-
-    # Check to make sure that the start date is not after the end date.  If they are, switch them.
 
     logger.info('Exiting date_range...')
     return start_date, end_date
@@ -107,10 +122,6 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     logger.info('main: Connecting to the database...')
     db = connect_database()
 
-    # Check to see if we have a vendor.  This is to catch if one is not listed in the station_info table.
-    if (parms['vendor'] is None):
-        raise Exception('ERROR: Vendor was not specified.  Check entry for station with id ' + parms['sn'] + ' in the station_info table.')
-
     # Get the date range and add it to the parms.
     logger.info('Setting date range...')
     start_date, end_date = get_range(parms['sn'], db, parms.get('vendor'))
@@ -133,6 +144,9 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         parms['station_id'] = parms.pop('sn')
         parms['station_lid'] = parms.pop('client_id')
         parms['user_passwd'] = parms.pop('password')
+
+    # Check the parms.
+    check_parms(**parms)
 
     success = True
 
