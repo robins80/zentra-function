@@ -1,3 +1,4 @@
+import ast
 from azure.storage.blob import BlockBlobService
 import azure.functions as func
 import datetime
@@ -6,13 +7,14 @@ import json
 import logging
 from multiweatherapi import multiweatherapi
 import os
+import pprint
 import psycopg2
 from requests import Session, Request
 import time
 
 import requests
 
-logger = logging.getLogger('zentra')
+logger = logging.getLogger(__name__)
 parms = None
 readings = None
 
@@ -42,6 +44,7 @@ def connect_database():    # Connect to the postgres database.
     return connection
 
 def check_parms(**parms):
+    # logger.info('DEBUG: The parms to be checked are: ' + str(parms))
     # Check to see if we have a vendor.  This is to catch if one is not listed in the station_info table.
     if (parms['vendor'] is None or len(parms['vendor']) == 0):
         raise Exception('ERROR: Vendor was not specified.  Check entry for station with id ' + parms['sn'] + ' in the station_info table.')
@@ -78,7 +81,6 @@ def get_range(sn, db, vendor):
         start_date = results[0][0]
     else:
         start_date = end_date - datetime.timedelta(seconds = 86400)
-        start_date = start_date.replace(tzinfo = local)
     
 
     logger.info('start_date: ' + str(start_date) + ', end_date: ' + str(end_date))
@@ -93,17 +95,20 @@ def get_range(sn, db, vendor):
     logger.info('Exiting date_range...')
     return start_date, end_date
 
-def tz_aware(dt):
-    return dt.tzinfo is not None and dt.tzinfo.utcoffset(dt) is not None    
-
 def main(req: func.HttpRequest) -> func.HttpResponse:
-    logger.info('main: Starting...')
-    logger.info('the body is ' + str(req.get_body()))
+    # Send Logging to stdout.
     streamer = logging.StreamHandler()
     streamer.setLevel(logging.DEBUG)
     logger.addHandler(streamer)
 
+    logger.info('main: Starting...')
+    logger.info('the body is ' + str(req.get_body()))
+    # logger.info('DEBUG: The local time zone is ' + str(datetime.datetime.utcnow().astimezone().tzinfo))
+
     parms = req.get_json()
+    # logger.info('The time is ' + str(datetime.datetime.now()))
+    # logger.info('DEBUG: parms is of type ' + str(type(parms)))
+    # logger.info(parms)
 
     # Connect to the blob service
     account = os.environ.get('AZURE_ACCOUNT')
@@ -127,26 +132,35 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     start_date, end_date = get_range(parms['sn'], db, parms.get('vendor'))
     parms['start_date'] = start_date
     parms['end_date'] = end_date
-    logger.info('DEBUG: start date = ' + str(parms['start_date']) + ', end date = ' + str(parms['end_date']))
+    # logger.info('DEBUG: start date = ' + str(parms['start_date']) + ', end date = ' + str(parms['end_date']))
+    # logger.info('DEBUG: Types are: start_date - ' + str(type(start_date)) + ', end_date - ' + str(type(end_date)))
+    # logger.info('DEBUG: start_date is: ' + str(start_date.tzinfo))
+    # logger.info('DEBUG: end_date is: ' + str(end_date.tzinfo))
 
     # If the vendor is rainwise, we need to add in mac, username (same as mac), sid, and pid.
     if (parms['vendor'] == 'rainwise'):
         logger.info('Setting rainwise parms...')
-        parms['username'] = parms.pop('user_id')
-        parms['mac'] = parms.pop('user_id')
-        parms['pid'] = parms.pop('apisec')
-        parms['sid'] = parms.pop('apikey')
+        parms['username'] = parms['user_id']
+        parms['mac'] = parms['user_id']
+        parms['pid'] = parms['apisec']
+        parms['sid'] = parms['apikey']
     
     # If the vendor is Campbell, we need to use sn for station_id, password for user_passwd and client_id for station_lid.
     # Call the multiweatherapi library to poll the API.
     if (parms['vendor'] == 'campbell'):
         logger.info('Setting campbell parms...')
-        parms['station_id'] = parms.pop('sn')
-        parms['station_lid'] = parms.pop('client_id')
-        parms['user_passwd'] = parms.pop('password')
+        parms['station_id'] = parms['sn']
+        parms['station_lid'] = parms['client_id']
+        parms['user_passwd'] = parms['password']
 
     # Check the parms.
     check_parms(**parms)
+
+    logger.info ('Calling multiweather version ' + multiweatherapi.get_version())
+
+    # logger.info('DEBUG: The parms being sent are: ')
+    # for key, value in parms.items():
+    #     logger.info('DEBUG: ' + str(key) + " = " + str(value))
 
     success = True
 
@@ -189,7 +203,11 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         }
 
         logger.info('main: Writing the raw_data table entry to blob storage...')
-        logger.info('DEBUG: main,  readings.resp_raw = ' + str(readings.resp_raw))
+        # logger.info('*************************************************')
+        # logger.info('DEBUG: main, multiweatherusa debug output is ' + str(readings.resp_debug))
+        # logger.info('*************************************************')
+        # logger.info('DEBUG: main,  readings.resp_raw = ' + str(readings.resp_raw))
+        # logger.info('*************************************************')
 
         try:
             blobservice.create_blob_from_text(container_name = 'zentra', blob_name = 'raw_data.json', text = json.dumps(raw_data), encoding='utf-8')
