@@ -9,10 +9,11 @@ from multiweatherapi import multiweatherapi
 import os
 import pprint
 import psycopg2
+import requests
 from requests import Session, Request
 import time
-
-import requests
+import traceback
+import yaml  # Used mostly for debugging.
 
 logger = logging.getLogger(__name__)
 parms = None
@@ -49,8 +50,6 @@ def check_parms(**parms):
     if (parms['vendor'] is None or len(parms['vendor']) == 0):
         raise Exception('ERROR: Vendor was not specified.  Check entry for station with id ' + parms['sn'] + ' in the station_info table.')
 
-    # print('start date = ' + str(parms['start_date']) + ', end date = ' + str(parms['end_date']))
-
     # Check to see if we have an identifier.
     if (parms['sn'] is None):
         raise Exception('ERROR: Station identifier is None.  Check the station_info table for null sn entries.')
@@ -59,41 +58,41 @@ def check_parms(**parms):
         raise Exception('ERROR: Station identifier is empty.  Check the station_info table for empty string sn entries.')
 
     # Check to make sure that the start date is not after the end date.  If they are, switch them.
-    if parms['start_date'] > parms['end_date']:
+    if parms['start_datetime'] > parms['end_datetime']:
         raise Exception('Start date is after the end date.')
 
-def get_range(sn, db, vendor):
-    # Get the last time this station was polled.
+def get_range(db, vendor, parms):
+    # Get the last time this station was polled. 
 
     local = tzlocal()
     # Use this when deploying the function.
-    query = 'Select poll_date from raw_data poll_date where sn = \'' + sn + '\' order by poll_date desc fetch first row only'
+    query = 'Select poll_date from raw_data poll_date where sn = \'' + parms.get('sn') + '\' order by poll_date desc fetch first row only'
+    logger.info('The query is ' + query)                     
     cursor = db.cursor()
     cursor.execute(query)
     results = cursor.fetchall()
     cursor.close()
 
     # Set the end date of the range for now.
-    end_date = datetime.datetime.now(datetime.timezone.utc)
+    end_datetime = datetime.datetime.now(datetime.timezone.utc)
     
-    # If there is no data in the raw_data table, then set the start_date to be 24 hours ago.  Make sure to make it time zone aware.
+    # If there is no data in the raw_data table, then set the start_datetime to be 24 hours ago.  Make sure to make it time zone aware.
     if results:
-        start_date = results[0][0]
+        start_datetime = results[0][0]
     else:
-        start_date = end_date - datetime.timedelta(seconds = 86400)
-    
+        start_datetime = end_datetime - datetime.timedelta(seconds = 86400)
 
-    logger.info('start_date: ' + str(start_date) + ', end_date: ' + str(end_date))
+    logger.info('start_datetime: ' + str(start_datetime) + ', end_datetime: ' + str(end_datetime))
 
     # If this is a Davis API, we need to make the date range 24 hours as they do not support date ranges larger than that.
-    if (vendor == 'davis') and (end_date - start_date > datetime.timedelta(hours = 24)):
-        start_date = end_date - datetime.timedelta(hours = 24)
+    # if (vendor == 'davis') and (end_datetime - start_datetime > datetime.timedelta(hours = 24)):
+    #     start_datetime = end_datetime - datetime.timedelta(hours = 24)
 
     # Use this for local testing as needed.
-    # start_date = end_date - datetime.timedelta(hours = 1)
+    # start_datetime = end_datetime - datetime.timedelta(hours = 1)
 
     logger.info('Exiting date_range...')
-    return start_date, end_date
+    return start_datetime, end_datetime
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
     # Send Logging to stdout.
@@ -102,13 +101,13 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     logger.addHandler(streamer)
 
     logger.info('main: Starting...')
-    logger.info('the body is ' + str(req.get_body()))
+    # logger.info('main: the body is ' + str(req.get_body()))
     # logger.info('DEBUG: The local time zone is ' + str(datetime.datetime.utcnow().astimezone().tzinfo))
 
     parms = req.get_json()
     # logger.info('The time is ' + str(datetime.datetime.now()))
     # logger.info('DEBUG: parms is of type ' + str(type(parms)))
-    # logger.info(parms)
+    # logger.info('DEBUG(main): parms are: \n' + yaml.dump(parms))
 
     # Connect to the blob service
     account = os.environ.get('AZURE_ACCOUNT')
@@ -127,34 +126,26 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     logger.info('main: Connecting to the database...')
     db = connect_database()
 
+    logger.info('main: Starting processing of a ' + parms['vendor'] + ' station...')
+    # If this is a Campbell station, copy "station_id" to "sn".  This is easier than having a lot of special condition code elsewhere.
+    if parms['vendor'].upper() == 'CAMPBELL':
+        parms['sn'] = parms['station_id']
+        logger.info('Campbell parms are: \n' + str(parms))
+
     # Get the date range and add it to the parms.
     logger.info('Setting date range...')
-    start_date, end_date = get_range(parms['sn'], db, parms.get('vendor'))
-    parms['start_date'] = start_date
-    parms['end_date'] = end_date
-    # logger.info('DEBUG: start date = ' + str(parms['start_date']) + ', end date = ' + str(parms['end_date']))
-    # logger.info('DEBUG: Types are: start_date - ' + str(type(start_date)) + ', end_date - ' + str(type(end_date)))
-    # logger.info('DEBUG: start_date is: ' + str(start_date.tzinfo))
-    # logger.info('DEBUG: end_date is: ' + str(end_date.tzinfo))
-
-    # If the vendor is rainwise, we need to add in mac, username (same as mac), sid, and pid.
-    if (parms['vendor'] == 'rainwise'):
-        logger.info('Setting rainwise parms...')
-        parms['username'] = parms['user_id']
-        parms['mac'] = parms['user_id']
-        parms['pid'] = parms['apisec']
-        parms['sid'] = parms['apikey']
-    
-    # If the vendor is Campbell, we need to use sn for station_id, password for user_passwd and client_id for station_lid.
-    # Call the multiweatherapi library to poll the API.
-    if (parms['vendor'] == 'campbell'):
-        logger.info('Setting campbell parms...')
-        parms['station_id'] = parms['sn']
-        parms['station_lid'] = parms['client_id']
-        parms['user_passwd'] = parms['password']
+    start_datetime, end_datetime = get_range(db, parms.get('vendor'), parms)
+    parms['start_datetime'] = start_datetime
+    parms['end_datetime'] = end_datetime
+    # logger.info('DEBUG: start date = ' + str(parms['start_datetime']) + ', end date = ' + str(parms['end_datetime']))
+    # logger.info('DEBUG: Types are: start_datetime - ' + str(type(start_datetime)) + ', end_datetime - ' + str(type(end_datetime)))
+    # logger.info('DEBUG: start_datetime is: ' + str(start_datetime.tzinfo))
+    # logger.info('DEBUG: end_datetime is: ' + str(end_datetime.tzinfo))
 
     # Check the parms.
     check_parms(**parms)
+
+    # logger.info('DEBUG(main): The parms being passed to multiweatherapi are:\n' + yaml.dump(parms))
 
     logger.info ('Calling multiweather version ' + multiweatherapi.get_version())
 
@@ -181,7 +172,20 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         logger.info('Error is')
         logger.info(error)
         logger.info('====================================')
+
+        logger.info('====================================')
+        logger.info('DEBUG(main): readings is:\n' + yaml.dump(readings))
+        logger.info('====================================')
+
+        logger.info('====================================')
+        logger.info('DEBUG(main): The exception is:\n' + yaml.dump(error))
+        logger.info('====================================')
+
+        logger.info('====================================')
+        logger.info('DEBUG(main): The traceback is:\n' + ''.join(traceback.format_tb(error.__traceback__))) 
+        logger.info('====================================')        
         success = False
+
         if error is None:
             output = "No error message"
         else:
@@ -215,9 +219,9 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             raise Exception('main: %s' % str(error))    
 
         logger.info('main: Writing the parsed.data file to blob storage...')
-        print('parsed data is ' + str(readings.resp_parsed))
+        logger.info('main(DEBUG): parsed data is ' + str(readings.resp_transformed))
         try:
-            blobservice.create_blob_from_text(container_name = 'zentra', blob_name = 'parsed.data', text = json.dumps(readings.resp_parsed), encoding='utf-8')
+            blobservice.create_blob_from_text(container_name = 'zentra', blob_name = 'parsed.data', text = json.dumps(readings.resp_transformed), encoding='utf-8')
         except Exception as error:
             raise Exception('main: %s' % str(error))          
 
