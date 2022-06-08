@@ -168,28 +168,27 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         # we don't create a raw_data.json file that has no real info in it, and therefore the part of the ddata factory that stores data will
         # not be called.
     except Exception as error:
-        logger.info('====================================')
-        logger.info('Error is')
-        logger.info(error)
-        logger.info('====================================')
-
-        logger.info('====================================')
-        logger.info('DEBUG(main): readings is:\n' + yaml.dump(readings))
-        logger.info('====================================')
-
-        logger.info('====================================')
-        logger.info('DEBUG(main): The exception is:\n' + yaml.dump(error))
-        logger.info('====================================')
-
-        logger.info('====================================')
-        logger.info('DEBUG(main): The traceback is:\n' + ''.join(traceback.format_tb(error.__traceback__))) 
-        logger.info('====================================')        
+        logger.error('====================================')
+        logger.error('Error is')
+        logger.error(error)
+        
+        logger.error('====================================')
+        logger.error('DEBUG(main): readings is:\n' + yaml.dump(readings))
+        
+        logger.error('====================================')
+        logger.error('DEBUG(main): The exception is:\n' + yaml.dump(error))
+        
+        logger.error('====================================')
+        logger.error('DEBUG(main): The traceback is:\n' + ''.join(traceback.format_tb(error.__traceback__))) 
+        logger.error('====================================')        
         success = False
 
         if error is None:
             output = "No error message"
         else:
             output = str(error)
+            raise
+
         logger.error('Encountered this error calling the API:\n=====>' + output)
     
     # If we didn't encounter an error calling the API, create our "raw data" JSON, which will have the following information:
