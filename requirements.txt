@@ -8,7 +8,7 @@ azure-storage-blob==2.1.0
 psycopg2-binary
 pytest
 requests
-multiweatherapi==0.0.19
+multiweatherapi==0.0.20
 opencensus-ext-azure
 python-dotenv
 pytz
