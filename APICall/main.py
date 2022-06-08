@@ -219,7 +219,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             raise Exception('main: %s' % str(error))    
 
         logger.info('main: Writing the parsed.data file to blob storage...')
-        logger.info('main(DEBUG): parsed data is ' + str(readings.resp_transformed))
+        # logger.info('main(DEBUG): parsed data is ' + str(readings.resp_transformed))
         try:
             blobservice.create_blob_from_text(container_name = 'zentra', blob_name = 'parsed.data', text = json.dumps(readings.resp_transformed), encoding='utf-8')
         except Exception as error:
