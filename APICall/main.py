@@ -45,7 +45,8 @@ def connect_database():    # Connect to the postgres database.
     return connection
 
 def check_parms(**parms):
-    # logger.info('DEBUG: The parms to be checked are: ' + str(parms))
+    # logger.info('DEBUG - check_parms: The parms to be checked are: ' + yaml.dump(parms))
+    # logger.info('DEBUG - check_parms: sensor_sn type is ' + str(type(parms['sensor_sn'])))
     # Check to see if we have a vendor.  This is to catch if one is not listed in the station_info table.
     if (parms['vendor'] is None or len(parms['vendor']) == 0):
         raise Exception('ERROR: Vendor was not specified.  Check entry for station with id ' + parms['sn'] + ' in the station_info table.')
@@ -60,6 +61,7 @@ def check_parms(**parms):
     # Check to make sure that the start date is not after the end date.  If they are, switch them.
     if parms['start_datetime'] > parms['end_datetime']:
         raise Exception('Start date is after the end date.')
+        
 
 def get_range(db, vendor, parms):
     # Get the last time this station was polled. 
@@ -67,7 +69,7 @@ def get_range(db, vendor, parms):
     local = tzlocal()
     # Use this when deploying the function.
     query = 'Select poll_date from raw_data poll_date where sn = \'' + parms.get('sn') + '\' order by poll_date desc fetch first row only'
-    logger.info('The query is ' + query)                     
+    # logger.info('The query is ' + query)                     
     cursor = db.cursor()
     cursor.execute(query)
     results = cursor.fetchall()
@@ -84,10 +86,6 @@ def get_range(db, vendor, parms):
 
     logger.info('start_datetime: ' + str(start_datetime) + ', end_datetime: ' + str(end_datetime))
 
-    # If this is a Davis API, we need to make the date range 24 hours as they do not support date ranges larger than that.
-    # if (vendor == 'davis') and (end_datetime - start_datetime > datetime.timedelta(hours = 24)):
-    #     start_datetime = end_datetime - datetime.timedelta(hours = 24)
-
     # Use this for local testing as needed.
     # start_datetime = end_datetime - datetime.timedelta(hours = 1)
 
@@ -101,7 +99,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     logger.addHandler(streamer)
 
     logger.info('main: Starting...')
-    # logger.info('main: the body is ' + str(req.get_body()))
+    logger.info('main: the body is ' + str(req.get_body()))
     # logger.info('DEBUG: The local time zone is ' + str(datetime.datetime.utcnow().astimezone().tzinfo))
 
     parms = req.get_json()
@@ -133,7 +131,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         logger.info('Campbell parms are: \n' + str(parms))
 
     # Get the date range and add it to the parms.
-    logger.info('Setting date range...')
+    logger.info('main: Setting date range...')
     start_datetime, end_datetime = get_range(db, parms.get('vendor'), parms)
     parms['start_datetime'] = start_datetime
     parms['end_datetime'] = end_datetime
@@ -141,6 +139,13 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     # logger.info('DEBUG: Types are: start_datetime - ' + str(type(start_datetime)) + ', end_datetime - ' + str(type(end_datetime)))
     # logger.info('DEBUG: start_datetime is: ' + str(start_datetime.tzinfo))
     # logger.info('DEBUG: end_datetime is: ' + str(end_datetime.tzinfo))
+
+    # If this is an Onset station, we need to build the sensor_sn parm.  Note that if this is run locally, the conversion from
+    # string to dictionary is not necessary.
+    if parms['vendor'] == 'ONSET':
+        # logger.info('DEBUG - main: sensor_sn is a ' + str(type(parms['sensor_sn'])))
+        if type(parms['sensor_sn']) is not dict:
+            parms['sensor_sn'] = eval(parms['sensor_sn'])
 
     # Check the parms.
     check_parms(**parms)
@@ -173,13 +178,13 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         logger.error(error)
         
         logger.error('====================================')
-        logger.error('DEBUG(main): readings is:\n' + yaml.dump(readings))
+        logger.error('main: readings is:\n' + yaml.dump(readings))
         
         logger.error('====================================')
-        logger.error('DEBUG(main): The exception is:\n' + yaml.dump(error))
+        logger.error('main: The exception is:\n' + yaml.dump(error))
         
         logger.error('====================================')
-        logger.error('DEBUG(main): The traceback is:\n' + ''.join(traceback.format_tb(error.__traceback__))) 
+        logger.error('main: The traceback is:\n' + ''.join(traceback.format_tb(error.__traceback__))) 
         logger.error('====================================')        
         success = False
 
